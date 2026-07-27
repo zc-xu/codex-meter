@@ -150,13 +150,20 @@
           </label>
         </div>
 
-        <label class="path-field">
-          <span>Codex 可执行文件</span>
-          <input id="codexPathInput" type="text" placeholder="自动查找；必要时可粘贴完整路径" spellcheck="false" />
-        </label>
+        <details class="advanced-settings no-drag">
+          <summary>
+            <span>高级设置</span>
+            <small>Codex 程序路径</small>
+          </summary>
+          <label class="path-field">
+            <span>Codex 程序路径（备用）</span>
+            <input id="codexPathInput" type="text" placeholder="留空即可自动查找" spellcheck="false" />
+            <em>通常不需要填写。只有显示“连接失败”且自动查找无效时，才粘贴 codex 或 codex.exe 的完整路径。</em>
+          </label>
+        </details>
 
         <div class="settings-footer">
-          <span id="dataSourceState">数据只在本机读取，不上传对话内容</span>
+          <span id="dataSourceState">正在自动连接本机 Codex</span>
           <button class="text-button" id="quitButton" type="button">退出应用</button>
         </div>
       </section>

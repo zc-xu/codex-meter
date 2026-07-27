@@ -25,7 +25,8 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 const WINDOW_WIDTH: f64 = 516.0;
 const WINDOW_HEIGHT: f64 = 184.0;
-const SETTINGS_HEIGHT: f64 = 420.0;
+const SETTINGS_HEIGHT: f64 = 396.0;
+const WINDOW_MARGIN: f64 = 12.0;
 const RPC_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_ROLLOUT_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -266,6 +267,19 @@ fn apply_window_mode(app: &AppHandle, settings: &Settings) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
+    let settings_open = app
+        .state::<AppState>()
+        .settings_open
+        .load(Ordering::Relaxed);
+    resize_and_clamp_window(
+        &window,
+        if settings_open {
+            SETTINGS_HEIGHT
+        } else {
+            WINDOW_HEIGHT
+        },
+    );
+
     let desktop = settings.display_mode == "desktop";
     let _ = window.set_always_on_top(false);
     let _ = window.set_always_on_bottom(false);
@@ -273,7 +287,7 @@ fn apply_window_mode(app: &AppHandle, settings: &Settings) {
         let _ = window.set_always_on_bottom(true);
         let _ = window.set_visible_on_all_workspaces(true);
         if let (Some(x), Some(y)) = (settings.window_x, settings.window_y) {
-            let _ = window.set_position(PhysicalPosition::new(x, y));
+            clamp_window_position(&window, PhysicalPosition::new(x, y));
         } else {
             place_top_right(&window);
         }
@@ -281,20 +295,103 @@ fn apply_window_mode(app: &AppHandle, settings: &Settings) {
     } else {
         let _ = window.set_always_on_top(settings.always_on_top);
         let _ = window.set_visible_on_all_workspaces(true);
+        clamp_current_window_position(&window);
     }
     let _ = window.emit("settings:changed", settings);
 }
 
+fn clamp_position(
+    position: PhysicalPosition<i32>,
+    window_size: PhysicalSize<u32>,
+    work_position: PhysicalPosition<i32>,
+    work_size: PhysicalSize<u32>,
+    margin: i32,
+) -> PhysicalPosition<i32> {
+    let minimum_x = work_position.x.saturating_add(margin);
+    let minimum_y = work_position.y.saturating_add(margin);
+    let maximum_x = work_position
+        .x
+        .saturating_add(work_size.width as i32)
+        .saturating_sub(window_size.width as i32)
+        .saturating_sub(margin);
+    let maximum_y = work_position
+        .y
+        .saturating_add(work_size.height as i32)
+        .saturating_sub(window_size.height as i32)
+        .saturating_sub(margin);
+
+    PhysicalPosition::new(
+        position.x.clamp(minimum_x, maximum_x.max(minimum_x)),
+        position.y.clamp(minimum_y, maximum_y.max(minimum_y)),
+    )
+}
+
+fn monitor_for_position(
+    window: &WebviewWindow,
+    position: PhysicalPosition<i32>,
+    window_size: PhysicalSize<u32>,
+) -> Option<tauri::Monitor> {
+    let center_x = position.x as f64 + window_size.width as f64 / 2.0;
+    let center_y = position.y as f64 + window_size.height as f64 / 2.0;
+    window
+        .monitor_from_point(center_x, center_y)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten())
+}
+
+fn clamp_window_position(window: &WebviewWindow, position: PhysicalPosition<i32>) {
+    let Ok(window_size) = window.outer_size() else {
+        return;
+    };
+    let Some(monitor) = monitor_for_position(window, position, window_size) else {
+        return;
+    };
+    let work_area = monitor.work_area();
+    let margin = (WINDOW_MARGIN * monitor.scale_factor()).round() as i32;
+    let position = clamp_position(
+        position,
+        window_size,
+        work_area.position,
+        work_area.size,
+        margin,
+    );
+    let _ = window.set_position(position);
+}
+
+fn clamp_current_window_position(window: &WebviewWindow) {
+    if let Ok(position) = window.outer_position() {
+        clamp_window_position(window, position);
+    }
+}
+
+fn resize_and_clamp_window(window: &WebviewWindow, height: f64) {
+    let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, height));
+    clamp_current_window_position(window);
+}
+
 fn place_top_right(window: &WebviewWindow) {
-    let Ok(Some(monitor)) = window.primary_monitor() else {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
         let _ = window.center();
         return;
     };
-    let monitor_position = monitor.position();
-    let monitor_size = monitor.size();
-    let x = monitor_position.x + monitor_size.width as i32 - WINDOW_WIDTH as i32 - 24;
-    let y = monitor_position.y + 34;
-    let _ = window.set_position(PhysicalPosition::new(x, y));
+    let Ok(window_size) = window.outer_size() else {
+        let _ = window.center();
+        return;
+    };
+    let work_area = monitor.work_area();
+    let margin = (WINDOW_MARGIN * monitor.scale_factor()).round() as i32;
+    let position = PhysicalPosition::new(
+        work_area.position.x + work_area.size.width as i32 - window_size.width as i32 - margin,
+        work_area.position.y + margin,
+    );
+    clamp_window_position(window, position);
 }
 
 fn show_near_tray(app: &AppHandle, click: PhysicalPosition<f64>) {
@@ -313,6 +410,7 @@ fn show_near_tray(app: &AppHandle, click: PhysicalPosition<f64>) {
         return;
     }
 
+    let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
     let size = window
         .outer_size()
         .unwrap_or_else(|_| PhysicalSize::new(WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32));
@@ -323,19 +421,19 @@ fn show_near_tray(app: &AppHandle, click: PhysicalPosition<f64>) {
     let mut y = click.y - size.height as f64 - 12.0;
 
     if let Ok(Some(monitor)) = window.monitor_from_point(click.x, click.y) {
-        let monitor_position = monitor.position();
-        let monitor_size = monitor.size();
-        let minimum_x = monitor_position.x as f64 + 8.0;
+        let work_area = monitor.work_area();
+        let margin = WINDOW_MARGIN * monitor.scale_factor();
+        let minimum_x = work_area.position.x as f64 + margin;
         let maximum_x =
-            monitor_position.x as f64 + monitor_size.width as f64 - size.width as f64 - 8.0;
-        let minimum_y = monitor_position.y as f64 + 8.0;
-        let maximum_y =
-            monitor_position.y as f64 + monitor_size.height as f64 - size.height as f64 - 8.0;
+            work_area.position.x as f64 + work_area.size.width as f64 - size.width as f64 - margin;
+        let minimum_y = work_area.position.y as f64 + margin;
+        let maximum_y = work_area.position.y as f64 + work_area.size.height as f64
+            - size.height as f64
+            - margin;
         x = x.clamp(minimum_x, maximum_x.max(minimum_x));
         y = y.clamp(minimum_y, maximum_y.max(minimum_y));
     }
 
-    let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
     let _ = window.set_position(PhysicalPosition::new(x.round() as i32, y.round() as i32));
     let _ = window.show();
     let _ = window.set_focus();
@@ -349,7 +447,7 @@ fn open_settings_window(app: &AppHandle) {
     app.state::<AppState>()
         .settings_open
         .store(true, Ordering::Relaxed);
-    let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, SETTINGS_HEIGHT));
+    resize_and_clamp_window(&window, SETTINGS_HEIGHT);
     if !window.is_visible().unwrap_or(false) {
         place_top_right(&window);
         let _ = window.show();
@@ -888,12 +986,13 @@ fn set_panel_open(
     open: bool,
 ) -> Result<(), String> {
     state.settings_open.store(open, Ordering::Relaxed);
-    window
-        .set_size(LogicalSize::new(
-            WINDOW_WIDTH,
-            if open { SETTINGS_HEIGHT } else { WINDOW_HEIGHT },
-        ))
-        .map_err(|error| error.to_string())
+    resize_and_clamp_window(&window, if open { SETTINGS_HEIGHT } else { WINDOW_HEIGHT });
+    Ok(())
+}
+
+#[tauri::command]
+fn begin_window_drag(window: WebviewWindow) -> Result<(), String> {
+    window.start_dragging().map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -918,6 +1017,7 @@ pub fn run() {
             refresh_usage,
             get_cached_snapshot,
             set_panel_open,
+            begin_window_drag,
             hide_widget,
             quit_app
         ])
@@ -1136,6 +1236,30 @@ mod tests {
         assert_eq!(plan_label("prolite"), "Pro Lite");
         assert_eq!(plan_label("plus"), "Plus");
         assert_eq!(plan_label("future"), "Codex");
+    }
+
+    #[test]
+    fn clamps_retina_window_inside_work_area() {
+        let position = clamp_position(
+            PhysicalPosition::new(2_500, 20),
+            PhysicalSize::new(1_032, 792),
+            PhysicalPosition::new(0, 48),
+            PhysicalSize::new(3_024, 1_800),
+            24,
+        );
+        assert_eq!(position, PhysicalPosition::new(1_968, 72));
+    }
+
+    #[test]
+    fn preserves_visible_window_position() {
+        let position = clamp_position(
+            PhysicalPosition::new(800, 400),
+            PhysicalSize::new(1_032, 368),
+            PhysicalPosition::new(0, 48),
+            PhysicalSize::new(3_024, 1_800),
+            24,
+        );
+        assert_eq!(position, PhysicalPosition::new(800, 400));
     }
 
     #[test]

@@ -117,8 +117,11 @@ function renderSnapshot(snapshot) {
   elements.syncLabel.textContent = connected ? "本地实时" : "连接失败";
   elements.syncState.title = snapshot.sourceError || "数据只在本机读取";
   elements.dataSourceState.textContent = connected
-    ? "数据只在本机读取，不上传对话内容"
+    ? "已自动连接本机 Codex"
     : snapshot.sourceError || "Codex 数据源不可用";
+  elements.dataSourceState.title = connected && snapshot.executable
+    ? `自动使用：${snapshot.executable}`
+    : snapshot.sourceError || "";
 
   elements.usageRing.style.setProperty("--used", `${used * 3.6}deg`);
   elements.usedPercent.textContent = connected ? `${used}%` : "—";
@@ -165,11 +168,19 @@ function renderSnapshot(snapshot) {
 }
 
 function updateDragRegions(mode) {
-  document.querySelectorAll("[data-drag-handle]").forEach((node) => {
-    if (mode === "desktop") node.setAttribute("data-tauri-drag-region", "");
-    else node.removeAttribute("data-tauri-drag-region");
-  });
+  elements.widget.classList.toggle("can-drag", mode === "desktop");
 }
+
+document.querySelectorAll("[data-drag-handle]").forEach((node) => {
+  node.addEventListener("mousedown", (event) => {
+    if (event.button !== 0 || currentSettings?.displayMode !== "desktop") return;
+    if (event.target.closest("button, input, select, summary, .no-drag")) return;
+    event.preventDefault();
+    invoke("begin_window_drag").catch(() => {
+      showToast("暂时无法拖动，请切换模式后重试");
+    });
+  });
+});
 
 function scheduleRefresh() {
   clearInterval(refreshTimer);
