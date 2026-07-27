@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex Meter</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="widget" id="widget" data-theme="system" data-mode="tray">
+      <section class="dashboard" id="dashboard" aria-label="Codex 用量">
+        <header class="topbar" data-drag-handle>
+          <div class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 3.2a8.8 8.8 0 1 0 8.8 8.8A8.8 8.8 0 0 0 12 3.2Z" />
+                <path d="M12 7.2a4.8 4.8 0 1 0 4.8 4.8A4.8 4.8 0 0 0 12 7.2Z" />
+              </svg>
+            </span>
+            <span class="brand-name">Codex</span>
+            <span class="plan-pill" id="plan">—</span>
+            <span class="mode-pill" id="modePill">菜单栏</span>
+          </div>
+
+          <div class="top-actions no-drag">
+            <span class="sync-state" id="syncState">
+              <span class="status-dot"></span>
+              <span id="syncLabel">正在连接</span>
+            </span>
+            <button class="icon-button" id="refreshButton" type="button" title="立即刷新">
+              <svg viewBox="0 0 24 24"><path d="M20 7v5h-5" /><path d="M19 12a7 7 0 1 0-2 5" /></svg>
+            </button>
+            <button class="icon-button" id="settingsButton" type="button" title="设置">
+              <svg viewBox="0 0 24 24">
+                <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
+              </svg>
+            </button>
+            <button class="icon-button" id="hideButton" type="button" title="收起到菜单栏">
+              <svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5" /></svg>
+            </button>
+          </div>
+        </header>
+
+        <div class="content">
+          <section class="usage-block">
+            <div class="usage-ring" id="usageRing">
+              <div class="ring-inner">
+                <strong id="usedPercent">—</strong>
+                <span>已使用</span>
+              </div>
+            </div>
+            <div class="usage-caption" id="windowLabel">本周期</div>
+          </section>
+
+          <section class="task-block">
+            <div class="section-kicker">
+              <span class="task-dot" id="taskDot"></span>
+              <span id="taskStatus">任务状态</span>
+              <span class="task-count" id="taskCount"></span>
+            </div>
+            <div class="task-title" id="taskTitle">正在读取本地任务…</div>
+            <div class="activity-track" id="activityTrack"><span></span></div>
+            <div class="task-meta">
+              <span id="taskElapsed">—</span>
+              <span class="meta-separator">·</span>
+              <span id="taskTokens">— Token</span>
+            </div>
+          </section>
+
+          <section class="metrics">
+            <div class="metric"><span>剩余</span><strong id="remainingPercent">—</strong></div>
+            <div class="metric"><span id="todayLabel">今日</span><strong id="todayTokens">—</strong></div>
+            <div class="metric"><span>近 7 日均值</span><strong id="averageTokens">—</strong></div>
+            <div class="metric"><span>累计 Token</span><strong id="lifetimeTokens">—</strong></div>
+          </section>
+        </div>
+
+        <footer class="footer">
+          <div><span>下次重置</span><strong id="resetAt">—</strong></div>
+          <div><span id="secondaryLabel">最近一轮</span><strong id="secondaryValue">—</strong></div>
+          <div class="renewal-action" id="renewalAction"><span>续费日期</span><strong id="renewalDate">未设置</strong></div>
+          <div class="footer-sync"><span>同步</span><strong id="lastSync">—</strong></div>
+        </footer>
+
+        <div class="toast" id="toast" hidden>
+          <span class="toast-icon">✓</span>
+          <span id="toastText">已驻留菜单栏，点击仪表图标可随时打开</span>
+        </div>
+      </section>
+
+      <section class="settings-panel" id="settingsPanel" hidden>
+        <header class="settings-header" data-drag-handle>
+          <div>
+            <h1>小组件设置</h1>
+            <p>关闭只会收起；菜单栏或系统托盘始终可以找回</p>
+          </div>
+          <button class="icon-button no-drag" id="closeSettingsButton" type="button" title="返回仪表盘">
+            <svg viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>
+          </button>
+        </header>
+
+        <div class="mode-selector" role="group" aria-label="显示方式">
+          <button id="trayModeButton" type="button" data-mode-value="tray">
+            <strong>菜单栏弹出</strong><span>单击打开，失焦收起</span>
+          </button>
+          <button id="desktopModeButton" type="button" data-mode-value="desktop">
+            <strong>贴在桌面</strong><span>常驻底层，不挡窗口</span>
+          </button>
+        </div>
+
+        <div class="settings-grid">
+          <label class="field">
+            <span>续费日期</span>
+            <input id="renewalInput" type="date" />
+          </label>
+          <label class="field">
+            <span>刷新频率</span>
+            <select id="refreshIntervalSelect">
+              <option value="10">10 秒</option>
+              <option value="15">15 秒</option>
+              <option value="30">30 秒</option>
+              <option value="60">60 秒</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>外观</span>
+            <select id="themeSelect">
+              <option value="system">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>透明度 <b id="opacityValue">96%</b></span>
+            <input id="opacityInput" type="range" min="72" max="100" step="1" />
+          </label>
+        </div>
+
+        <div class="toggle-row">
+          <label class="switch-label">
+            <span>菜单栏模式置顶</span>
+            <input id="alwaysOnTopInput" type="checkbox" />
+            <i></i>
+          </label>
+          <label class="switch-label">
+            <span>登录时启动</span>
+            <input id="launchAtLoginInput" type="checkbox" />
+            <i></i>
+          </label>
+        </div>
+
+        <label class="path-field">
+          <span>Codex 可执行文件</span>
+          <input id="codexPathInput" type="text" placeholder="自动查找；必要时可粘贴完整路径" spellcheck="false" />
+        </label>
+
+        <div class="settings-footer">
+          <span id="dataSourceState">数据只在本机读取，不上传对话内容</span>
+          <button class="text-button" id="quitButton" type="button">退出应用</button>
+        </div>
+      </section>
+    </main>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

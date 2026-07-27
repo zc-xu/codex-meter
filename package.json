@@ -1,0 +1,15 @@
+{
+  "name": "codex-meter",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A native-feeling menu bar and desktop widget for local Codex usage.",
+  "scripts": {
+    "tauri": "node scripts/tauri-env.mjs",
+    "dev": "node scripts/tauri-env.mjs dev",
+    "build": "node scripts/tauri-env.mjs build",
+    "test": "node scripts/tauri-env.mjs test"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}
