@@ -64,4 +64,4 @@ npm test
 npm run build
 ```
 
-GitHub Actions 会在 macOS 与 Windows 上运行 Rust 测试。确定第一版交互后，再启用 Release 与签名发布流程。
+当前先以本机测试为主。确定第一版交互后，再启用 macOS/Windows CI、Release 与签名发布流程。
