@@ -7,7 +7,8 @@
     "tauri": "node scripts/tauri-env.mjs",
     "dev": "node scripts/tauri-env.mjs dev",
     "build": "node scripts/tauri-env.mjs build",
-    "test": "node scripts/tauri-env.mjs test"
+    "test": "node scripts/tauri-env.mjs test",
+    "icon:tray": "node scripts/generate-tray-icon.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4"
