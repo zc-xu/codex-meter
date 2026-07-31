@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.0 — 2026-07-31
+
+### Added
+
+- Dynamic menu bar/system tray quota ring that depletes clockwise with current usage
+- Automatic next-renewal calculation from the last monthly recharge date
+
+### Changed
+
+- Menu bar popup now stays visible until explicitly hidden or toggled from the tray icon
+- Larger typography and higher-contrast secondary text throughout the dashboard and settings
+- Consistent left alignment for the compact footer metrics
+
+### Fixed
+
+- Settings and dashboard height restoration when switching modes or reopening from the tray
+- Desktop-mode placement, dragging, and visible-area clamping
+- Footer text clipping after the typography update
+- Windows release builds no longer open an extra console window
+
 ## 1.0.0 — 2026-07-28
 
 ### Added

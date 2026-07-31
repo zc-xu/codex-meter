@@ -29,15 +29,22 @@ const SETTINGS_HEIGHT: f64 = 396.0;
 const WINDOW_MARGIN: f64 = 12.0;
 const RPC_TIMEOUT: Duration = Duration::from_secs(12);
 const MAX_ROLLOUT_BYTES: u64 = 4 * 1024 * 1024;
+const TRAY_ICON_SIZE: u32 = 64;
+const TRAY_ICON_SAMPLES: u32 = 4;
+#[cfg(target_os = "macos")]
+const TRAY_ICON_RGB: [u8; 3] = [0, 0, 0];
+#[cfg(not(target_os = "macos"))]
+const TRAY_ICON_RGB: [u8; 3] = [82, 96, 228];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 struct Settings {
     always_on_top: bool,
     launch_at_login: bool,
     opacity: f64,
     refresh_interval_sec: u64,
-    renewal_date: String,
+    #[serde(alias = "renewalDate")]
+    last_payment_date: String,
     theme: String,
     codex_path: String,
     display_mode: String,
@@ -52,7 +59,7 @@ impl Default for Settings {
             launch_at_login: false,
             opacity: 0.96,
             refresh_interval_sec: 15,
-            renewal_date: String::new(),
+            last_payment_date: String::new(),
             theme: "system".into(),
             codex_path: String::new(),
             display_mode: "tray".into(),
@@ -74,21 +81,8 @@ impl Settings {
         if !["tray", "desktop"].contains(&self.display_mode.as_str()) {
             self.display_mode = "tray".into();
         }
-        if !self.renewal_date.is_empty()
-            && (self.renewal_date.len() != 10
-                || self
-                    .renewal_date
-                    .chars()
-                    .enumerate()
-                    .any(|(index, character)| {
-                        if index == 4 || index == 7 {
-                            character != '-'
-                        } else {
-                            !character.is_ascii_digit()
-                        }
-                    }))
-        {
-            self.renewal_date.clear();
+        if !self.last_payment_date.is_empty() && parse_date_key(&self.last_payment_date).is_none() {
+            self.last_payment_date.clear();
         }
         self
     }
@@ -101,7 +95,7 @@ struct SettingsPatch {
     launch_at_login: Option<bool>,
     opacity: Option<f64>,
     refresh_interval_sec: Option<u64>,
-    renewal_date: Option<String>,
+    last_payment_date: Option<String>,
     theme: Option<String>,
     codex_path: Option<String>,
     display_mode: Option<String>,
@@ -164,7 +158,7 @@ impl UsageSnapshot {
             task_title: "无法读取 Codex 本地数据".into(),
             task_started_at_ms: None,
             task_updated_at_sec: None,
-            renewal_date: non_empty(&settings.renewal_date),
+            renewal_date: next_monthly_renewal_date(&settings.last_payment_date),
         }
     }
 }
@@ -191,6 +185,7 @@ struct AppState {
     settings_path: PathBuf,
     settings_open: AtomicBool,
     snapshot: Mutex<Option<UsageSnapshot>>,
+    tray_icon_level: Mutex<Option<i16>>,
 }
 
 fn now_ms() -> u64 {
@@ -200,12 +195,158 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
-fn non_empty(value: &str) -> Option<String> {
-    if value.trim().is_empty() {
-        None
-    } else {
-        Some(value.to_owned())
+fn is_leap_year(year: i32) -> bool {
+    year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+}
+
+fn days_in_month(year: i32, month: u32) -> Option<u32> {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => Some(31),
+        4 | 6 | 9 | 11 => Some(30),
+        2 => Some(if is_leap_year(year) { 29 } else { 28 }),
+        _ => None,
     }
+}
+
+fn parse_date_key(value: &str) -> Option<(i32, u32, u32)> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || bytes
+            .iter()
+            .enumerate()
+            .any(|(index, byte)| index != 4 && index != 7 && !byte.is_ascii_digit())
+    {
+        return None;
+    }
+    let year = value[0..4].parse::<i32>().ok()?;
+    let month = value[5..7].parse::<u32>().ok()?;
+    let day = value[8..10].parse::<u32>().ok()?;
+    if year < 1 || day < 1 || day > days_in_month(year, month)? {
+        return None;
+    }
+    Some((year, month, day))
+}
+
+fn next_monthly_renewal_date(last_payment_date: &str) -> Option<String> {
+    let (year, month, day) = parse_date_key(last_payment_date)?;
+    let (next_year, next_month) = if month == 12 {
+        (year.checked_add(1)?, 1)
+    } else {
+        (year, month + 1)
+    };
+    if next_year > 9_999 {
+        return None;
+    }
+    let next_day = day.min(days_in_month(next_year, next_month)?);
+    Some(format!("{next_year:04}-{next_month:02}-{next_day:02}"))
+}
+
+fn tray_icon_rgba(used_percent: Option<f64>) -> Vec<u8> {
+    let size = TRAY_ICON_SIZE;
+    let samples = TRAY_ICON_SAMPLES;
+    let center = size as f64 / 2.0;
+    let radius = 22.5;
+    let half_stroke = 3.5;
+    let used = used_percent
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.0, 100.0) / 100.0);
+    let mut rgba = vec![0; (size * size * 4) as usize];
+
+    for y in 0..size {
+        for x in 0..size {
+            let mut alpha = 0.0;
+            for sample_y in 0..samples {
+                for sample_x in 0..samples {
+                    let point_x = x as f64 + (sample_x as f64 + 0.5) / samples as f64;
+                    let point_y = y as f64 + (sample_y as f64 + 0.5) / samples as f64;
+                    let dx = point_x - center;
+                    let dy = point_y - center;
+                    let distance = dx.hypot(dy);
+                    let mut sample_alpha: f64 = 0.0;
+
+                    if (distance - radius).abs() <= half_stroke {
+                        sample_alpha = if used.is_some() { 0.2 } else { 0.32 };
+                        if let Some(used) = used {
+                            let clockwise_from_top = (dy.atan2(dx) + std::f64::consts::FRAC_PI_2)
+                                .rem_euclid(std::f64::consts::TAU);
+                            if used <= 0.001
+                                || (used < 1.0
+                                    && clockwise_from_top >= std::f64::consts::TAU * used)
+                            {
+                                sample_alpha = 1.0;
+                            }
+                        }
+                    }
+
+                    if let Some(used) = used
+                        && used > 0.001
+                        && used < 0.999
+                    {
+                        let end_angle = -std::f64::consts::FRAC_PI_2 + std::f64::consts::TAU * used;
+                        let cap_points = [
+                            (center, center - radius),
+                            (
+                                center + radius * end_angle.cos(),
+                                center + radius * end_angle.sin(),
+                            ),
+                        ];
+                        if cap_points.iter().any(|(cap_x, cap_y)| {
+                            (point_x - cap_x).hypot(point_y - cap_y) <= half_stroke
+                        }) {
+                            sample_alpha = 1.0;
+                        }
+                    }
+
+                    if distance <= 5.0 {
+                        sample_alpha = if used.is_some() { 1.0 } else { 0.48 };
+                    }
+                    alpha += sample_alpha;
+                }
+            }
+
+            let offset = ((y * size + x) * 4) as usize;
+            rgba[offset..offset + 3].copy_from_slice(&TRAY_ICON_RGB);
+            rgba[offset + 3] = ((alpha / (samples * samples) as f64) * 255.0).round() as u8;
+        }
+    }
+    rgba
+}
+
+fn tray_usage_icon(used_percent: Option<f64>) -> Image<'static> {
+    Image::new_owned(tray_icon_rgba(used_percent), TRAY_ICON_SIZE, TRAY_ICON_SIZE)
+}
+
+fn update_tray_icon(app: &AppHandle, snapshot: &UsageSnapshot) {
+    let icon_level = if snapshot.connected {
+        snapshot.used_percent.clamp(0.0, 100.0).round() as i16
+    } else {
+        -1
+    };
+    let state = app.state::<AppState>();
+    let mut current_level = state.tray_icon_level.lock().unwrap();
+    if *current_level == Some(icon_level) {
+        return;
+    }
+    *current_level = Some(icon_level);
+    drop(current_level);
+
+    let Some(tray) = app.tray_by_id("codex-meter-tray") else {
+        return;
+    };
+    let used = snapshot.connected.then_some(snapshot.used_percent);
+    let _ = tray.set_icon_with_as_template(Some(tray_usage_icon(used)), true);
+    let tooltip = if snapshot.connected {
+        format!(
+            "Codex Meter · 已使用 {}% · 剩余 {}%",
+            snapshot.used_percent.round() as i32,
+            snapshot.remaining_percent.round() as i32
+        )
+    } else {
+        "Codex Meter · 未连接".into()
+    };
+    let _ = tray.set_tooltip(Some(tooltip));
 }
 
 fn read_settings(path: &Path) -> Settings {
@@ -239,8 +380,8 @@ fn apply_patch(settings: &mut Settings, patch: SettingsPatch) {
     if let Some(value) = patch.refresh_interval_sec {
         settings.refresh_interval_sec = value;
     }
-    if let Some(value) = patch.renewal_date {
-        settings.renewal_date = value;
+    if let Some(value) = patch.last_payment_date {
+        settings.last_payment_date = value;
     }
     if let Some(value) = patch.theme {
         settings.theme = value;
@@ -398,7 +539,9 @@ fn show_near_tray(app: &AppHandle, click: PhysicalPosition<f64>) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
-    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+    let state = app.state::<AppState>();
+    let settings = state.settings.lock().unwrap().clone();
+    let settings_open = state.settings_open.load(Ordering::Relaxed);
 
     if window.is_visible().unwrap_or(false) {
         let _ = window.hide();
@@ -410,7 +553,12 @@ fn show_near_tray(app: &AppHandle, click: PhysicalPosition<f64>) {
         return;
     }
 
-    let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
+    let height = if settings_open {
+        SETTINGS_HEIGHT
+    } else {
+        WINDOW_HEIGHT
+    };
+    let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, height));
     let size = window
         .outer_size()
         .unwrap_or_else(|_| PhysicalSize::new(WINDOW_WIDTH as u32, WINDOW_HEIGHT as u32));
@@ -463,6 +611,7 @@ fn refresh_and_emit(app: AppHandle) {
             tauri::async_runtime::spawn_blocking(move || collect_snapshot(&settings)).await;
         if let Ok(snapshot) = result {
             *app.state::<AppState>().snapshot.lock().unwrap() = Some(snapshot.clone());
+            update_tray_icon(&app, &snapshot);
             let _ = app.emit("usage:snapshot", snapshot);
         }
     });
@@ -939,7 +1088,7 @@ fn collect_snapshot(settings: &Settings) -> UsageSnapshot {
             .map(|thread| thread.activity.task_started_at_ms)
             .filter(|timestamp| *timestamp > 0),
         task_updated_at_sec: focus.map(|thread| thread.updated_at),
-        renewal_date: non_empty(&settings.renewal_date),
+        renewal_date: next_monthly_renewal_date(&settings.last_payment_date),
     }
 }
 
@@ -965,12 +1114,16 @@ fn update_settings(
 }
 
 #[tauri::command]
-async fn refresh_usage(state: State<'_, AppState>) -> Result<UsageSnapshot, String> {
+async fn refresh_usage(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<UsageSnapshot, String> {
     let settings = state.settings.lock().unwrap().clone();
     let snapshot = tauri::async_runtime::spawn_blocking(move || collect_snapshot(&settings))
         .await
         .map_err(|error| error.to_string())?;
     *state.snapshot.lock().unwrap() = Some(snapshot.clone());
+    update_tray_icon(&app, &snapshot);
     Ok(snapshot)
 }
 
@@ -1037,6 +1190,7 @@ pub fn run() {
                 settings_path,
                 settings_open: AtomicBool::new(false),
                 snapshot: Mutex::new(None),
+                tray_icon_level: Mutex::new(None),
             });
 
             apply_autostart(app.handle(), settings.launch_at_login);
@@ -1071,7 +1225,7 @@ pub fn run() {
             let desktop_item_for_menu = desktop_item.clone();
             TrayIconBuilder::with_id("codex-meter-tray")
                 .tooltip("Codex Meter")
-                .icon(Image::from_bytes(include_bytes!("../icons/tray-icon.png"))?)
+                .icon(tray_usage_icon(None))
                 .icon_as_template(true)
                 .menu(&menu)
                 .show_menu_on_left_click(false)
@@ -1136,13 +1290,6 @@ pub fn run() {
             WindowEvent::CloseRequested { api, .. } => {
                 api.prevent_close();
                 let _ = window.hide();
-            }
-            WindowEvent::Focused(false) => {
-                let state = window.app_handle().state::<AppState>();
-                let settings = state.settings.lock().unwrap().clone();
-                if settings.display_mode == "tray" && !state.settings_open.load(Ordering::Relaxed) {
-                    let _ = window.hide();
-                }
             }
             WindowEvent::Moved(position) => {
                 let state = window.app_handle().state::<AppState>();
@@ -1220,6 +1367,7 @@ mod tests {
         let settings = Settings {
             opacity: 3.0,
             refresh_interval_sec: 17,
+            last_payment_date: "2026-02-30".into(),
             theme: "neon".into(),
             display_mode: "window".into(),
             ..Settings::default()
@@ -1227,8 +1375,55 @@ mod tests {
         .sanitize();
         assert_eq!(settings.opacity, 1.0);
         assert_eq!(settings.refresh_interval_sec, 15);
+        assert!(settings.last_payment_date.is_empty());
         assert_eq!(settings.theme, "system");
         assert_eq!(settings.display_mode, "tray");
+    }
+
+    #[test]
+    fn monthly_renewal_is_derived_from_last_payment_date() {
+        assert_eq!(
+            next_monthly_renewal_date("2026-07-28").as_deref(),
+            Some("2026-08-28")
+        );
+        assert_eq!(
+            next_monthly_renewal_date("2026-12-31").as_deref(),
+            Some("2027-01-31")
+        );
+        assert_eq!(
+            next_monthly_renewal_date("2024-01-31").as_deref(),
+            Some("2024-02-29")
+        );
+        assert_eq!(
+            next_monthly_renewal_date("2025-01-31").as_deref(),
+            Some("2025-02-28")
+        );
+        assert_eq!(next_monthly_renewal_date("2026-02-30"), None);
+    }
+
+    #[test]
+    fn old_renewal_setting_migrates_to_last_payment_date() {
+        let settings: Settings = serde_json::from_value(json!({
+            "renewalDate": "2026-07-28"
+        }))
+        .unwrap();
+        assert_eq!(settings.last_payment_date, "2026-07-28");
+    }
+
+    #[test]
+    fn tray_icon_ring_tracks_remaining_quota() {
+        let alpha_at =
+            |pixels: &[u8], x: u32, y: u32| pixels[((y * TRAY_ICON_SIZE + x) * 4 + 3) as usize];
+        let unused = tray_icon_rgba(Some(0.0));
+        let half_used = tray_icon_rgba(Some(50.0));
+        let fully_used = tray_icon_rgba(Some(100.0));
+
+        assert!(alpha_at(&unused, 54, 32) > 220);
+        assert!(alpha_at(&unused, 9, 32) > 220);
+        assert!(alpha_at(&half_used, 54, 32) < 100);
+        assert!(alpha_at(&half_used, 9, 32) > 220);
+        assert!(alpha_at(&fully_used, 54, 32) < 100);
+        assert!(alpha_at(&fully_used, 9, 32) < 100);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "codex-meter"
-version = "1.0.0"
+version = "1.1.0"
 description = "A native-feeling menu bar and desktop widget for local Codex usage."
 authors = ["Codex Meter contributors"]
 edition = "2024"

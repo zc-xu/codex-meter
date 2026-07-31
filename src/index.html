@@ -79,7 +79,7 @@
         <footer class="footer">
           <div><span>下次重置</span><strong id="resetAt">—</strong></div>
           <div><span id="secondaryLabel">最近一轮</span><strong id="secondaryValue">—</strong></div>
-          <div class="renewal-action" id="renewalAction"><span>续费日期</span><strong id="renewalDate">未设置</strong></div>
+          <div class="renewal-action" id="renewalAction"><span>下次续费</span><strong id="renewalDate">未设置</strong></div>
           <div class="footer-sync"><span>同步</span><strong id="lastSync">—</strong></div>
         </footer>
 
@@ -102,7 +102,7 @@
 
         <div class="mode-selector" role="group" aria-label="显示方式">
           <button id="trayModeButton" type="button" data-mode-value="tray">
-            <strong>菜单栏弹出</strong><span>单击打开，失焦收起</span>
+            <strong>菜单栏弹出</strong><span>单击打开，再次单击收起</span>
           </button>
           <button id="desktopModeButton" type="button" data-mode-value="desktop">
             <strong>贴在桌面</strong><span>常驻底层，不挡窗口</span>
@@ -111,7 +111,7 @@
 
         <div class="settings-grid">
           <label class="field">
-            <span>续费日期</span>
+            <span>上次充值日期 <b>按月推算</b></span>
             <input id="renewalInput" type="date" />
           </label>
           <label class="field">

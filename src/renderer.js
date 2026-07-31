@@ -78,9 +78,12 @@ function formatRenewal(dateKey) {
   if (!dateKey) return "未设置";
   const date = new Date(`${dateKey}T00:00:00`);
   if (Number.isNaN(date.getTime())) return "未设置";
-  const days = Math.ceil((date.getTime() - Date.now()) / 86_400_000);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((date.getTime() - today.getTime()) / 86_400_000);
   if (days === 0) return "今天";
   if (days > 0 && days <= 30) return `${days} 天后`;
+  if (days < 0 && days >= -30) return `已逾期 ${Math.abs(days)} 天`;
   return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
 }
 
@@ -200,7 +203,7 @@ function renderSettings(settings) {
     settings.displayMode === "desktop" ? "暂时隐藏，可从菜单栏找回" : "收起到菜单栏";
   updateDragRegions(settings.displayMode);
 
-  elements.renewalInput.value = settings.renewalDate || "";
+  elements.renewalInput.value = settings.lastPaymentDate || "";
   elements.refreshIntervalSelect.value = String(settings.refreshIntervalSec || 15);
   elements.themeSelect.value = settings.theme || "system";
   elements.opacityInput.value = String(Math.round((settings.opacity || 0.96) * 100));
@@ -258,7 +261,7 @@ elements.renewalAction.addEventListener("click", openSettings);
 elements.trayModeButton.addEventListener("click", () => saveSettings({ displayMode: "tray" }));
 elements.desktopModeButton.addEventListener("click", () => saveSettings({ displayMode: "desktop" }));
 elements.renewalInput.addEventListener("change", (event) =>
-  saveSettings({ renewalDate: event.target.value })
+  saveSettings({ lastPaymentDate: event.target.value }).then(refresh)
 );
 elements.refreshIntervalSelect.addEventListener("change", (event) =>
   saveSettings({ refreshIntervalSec: Number(event.target.value) })
